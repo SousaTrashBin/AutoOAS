@@ -121,6 +121,31 @@ class MazeMainTest {
         assertEquals("/", rootDocument.path("servers").get(0).path("url").asText());
     }
 
+    @Test void unresolvedParameterAnnotationsDoNotRequireTargetClasspath() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                @jakarta.ws.rs.Path("/items")
+                public class Resource {
+                  @jakarta.ws.rs.GET public String read(
+                    @org.eclipse.microprofile.openapi.annotations.parameters.Parameter(description="name")
+                    @jakarta.ws.rs.QueryParam("name") @jakarta.validation.constraints.NotBlank String name,
+                    @jakarta.ws.rs.QueryParam("optional") @example.NoRuntimeAnnotation String optional,
+                    @jakarta.ws.rs.HeaderParam("x-token") @jakarta.validation.constraints.NotNull String token) {
+                    return name;
+                  }
+                }
+                @interface NoRuntimeAnnotation {}
+                """);
+        JsonNode parameters = generate("quarkus", "prod").path("document").path("paths")
+                .path("/items").path("get").path("parameters");
+        java.util.Map<String, Boolean> required = new java.util.HashMap<>();
+        for (JsonNode parameter : parameters) {
+            required.put(parameter.path("name").asText(), parameter.path("required").asBoolean());
+        }
+        assertEquals(java.util.Map.of("name", true, "optional", false, "x-token", true), required);
+    }
+
     @Test void explicitProfilesAndUnsupportedConditions() throws Exception {
         Path source = sources();
         for (String framework : List.of("spring", "quarkus")) {

@@ -5,7 +5,6 @@ import at.aau.serg.frameworks.jaxrs.adapters.mappings.JakartaRestOperationAnnota
 import at.aau.serg.frameworks.jaxrs.adapters.parameters.JakartaHeaderParamAdapter;
 import at.aau.serg.frameworks.jaxrs.adapters.parameters.JakartaPathParamAdapter;
 import at.aau.serg.frameworks.jaxrs.adapters.parameters.JakartaQueryParamAdapter;
-import at.aau.serg.frameworks.validation.ValidationAnnotationProviderFactory;
 import at.aau.serg.interceptors.JakartaOperationResponseCodeInterceptor;
 import at.aau.serg.parsers.HttpMethod;
 import at.aau.serg.util.SpoonUtils;
@@ -33,7 +32,6 @@ import java.util.stream.Collectors;
 import static at.aau.serg.frameworks.utils.AnnotationUtils.getAnnotation;
 
 public class JakartaRestFramework extends AbstractJaxRsFramework {
-    ValidationAnnotationProvider validationAnnotationProvider = new ValidationAnnotationProviderFactory().getCompositeProvider();
 
     @Override
     public String getIdentifier() {
@@ -267,15 +265,16 @@ public class JakartaRestFramework extends AbstractJaxRsFramework {
     }
 
     private boolean hasValidationAnnotation(CtParameter<?> parameter) {
-        List<CtAnnotation<? extends Annotation>> annotations = parameter.getAnnotations();
-
-        return annotations.stream()
-                .anyMatch(annotation -> {
-                            Annotation actualAnnotation = annotation.getActualAnnotation();
-                            return validationAnnotationProvider.isNotNullAnnotation(actualAnnotation) ||
-                                    validationAnnotationProvider.isNotEmptyAnnotation(actualAnnotation);
-                        }
-                );
+        Set<String> requiredAnnotations = Set.of(
+                "jakarta.validation.constraints.NotNull",
+                "jakarta.validation.constraints.NotEmpty",
+                "jakarta.validation.constraints.NotBlank",
+                "javax.validation.constraints.NotNull",
+                "javax.validation.constraints.NotEmpty",
+                "javax.validation.constraints.NotBlank");
+        return parameter.getAnnotations().stream()
+                .map(annotation -> annotation.getAnnotationType().getQualifiedName())
+                .anyMatch(requiredAnnotations::contains);
     }
 
     /**
