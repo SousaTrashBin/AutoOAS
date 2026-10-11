@@ -195,7 +195,7 @@ public class RestApiParser {
         return openApi;
     }
 
-    private void writeOpenApiToFile(OpenAPI openApi, String profileName) {
+    protected void writeOpenApiToFile(OpenAPI openApi, String profileName) {
         var fileName = outputFileName.replace(".json", "") + "_" + profileName + ".json";
         openApiGen.writeOpenApiToFile(openApi, fileName);
         System.out.println("Wrote OpenAPI to " + fileName);

@@ -51,12 +51,12 @@ public class DataTypeTransformer {
         // content
 
         // strip the DeferredResult wrapper
-        if (schemaGeneratorHelper.isTypeEquivalent(responseType, restFramework.getAsyncResultWrapper())) {
+        if (restFramework.getAsyncResultWrapperNames().contains(responseType.getQualifiedName())) {
             responseType = stripReturnValueWrapper(responseType);
         }
 
         // strip the ResponseEntity wrapper
-        if (schemaGeneratorHelper.isTypeEquivalent(responseType, restFramework.getResponseWrapper())) {
+        if (restFramework.getResponseWrapperNames().contains(responseType.getQualifiedName())) {
             responseType = stripReturnValueWrapper(responseType);
         }
 
