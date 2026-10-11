@@ -206,7 +206,8 @@ public class RestApiParser {
         if (basePaths != null && !basePaths.isEmpty()) {
             for (String basePath : basePaths) {
                 String normalizedPath = basePath.startsWith("/") ? basePath : "/" + basePath;
-                normalizedPath = normalizedPath.endsWith("/") ? normalizedPath.substring(0, normalizedPath.length()-1) : normalizedPath;
+                normalizedPath = normalizedPath.length() > 1 && normalizedPath.endsWith("/")
+                        ? normalizedPath.substring(0, normalizedPath.length()-1) : normalizedPath;
 
                 Server server = new Server();
                 server.setUrl(normalizedPath);

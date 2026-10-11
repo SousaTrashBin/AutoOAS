@@ -99,6 +99,28 @@ class MazeMainTest {
         assertNull(System.getProperty("maze.target.executed"));
     }
 
+    @Test void quarkusRootApplicationPathPreservesDeploymentPrefix() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                @jakarta.ws.rs.Path("/items")
+                public class Resource {
+                  @jakarta.ws.rs.GET public String read() { return "ok"; }
+                }
+                """);
+        Files.writeString(source.resolve("RestApplication.java"), """
+                package example;
+                @jakarta.ws.rs.ApplicationPath("/")
+                public class RestApplication extends jakarta.ws.rs.core.Application {}
+                """);
+        JsonNode document = generate("quarkus", "prod").path("document");
+        assertTrue(document.path("paths").path("/items").has("get"));
+        assertEquals("/edge", document.path("servers").get(0).path("url").asText());
+        JsonNode rootDocument = MazeMain.generate(root, "quarkus", "/", "prod",
+                List.of(Path.of("src/main/java"))).path("document");
+        assertEquals("/", rootDocument.path("servers").get(0).path("url").asText());
+    }
+
     @Test void explicitProfilesAndUnsupportedConditions() throws Exception {
         Path source = sources();
         for (String framework : List.of("spring", "quarkus")) {
