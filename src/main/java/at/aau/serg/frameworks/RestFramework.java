@@ -153,12 +153,20 @@ public interface RestFramework {
      */
     Class<?> getAsyncResultWrapper();
 
+    default Set<String> getAsyncResultWrapperNames() {
+        return Set.of(getAsyncResultWrapper().getName());
+    }
+
     /**
      * Returns the class that wraps HTTP responses in the current framework, e.g., Response or ResponseEntity.
      *
      * @return The class type used for wrapping HTTP responses
      */
     Class<?> getResponseWrapper();
+
+    default Set<String> getResponseWrapperNames() {
+        return Set.of(getResponseWrapper().getName());
+    }
 
     default Class<?> getOptionalWrapper() {
         // com.google.common.base.Optional.class

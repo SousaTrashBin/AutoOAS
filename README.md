@@ -66,3 +66,51 @@ If you use this project in your academic work, please cite the following paper:
   author = {Alexander Lercher and David Jamnig and Christian Macho and Clemens Bauer and Martin Pinzger}
   }
 ```
+
+
+## MAZE source-only integration
+
+The `feat/maze-source-spring-quarkus` branch adds
+`at.aau.serg.parsers.MazeMain`, preserving the upstream parser and schema
+transformers. Build the analyzer with Java 21+ and `mvn package`; run its
+headless entry point with the analyzer JAR on the classpath:
+
+```sh
+java -cp target/auto-oas-1.2.0-jar-with-dependencies.jar \
+  at.aau.serg.parsers.MazeMain /path/to/project quarkus /edge prod src/main/java
+```
+
+Arguments are the project root, `spring` or `quarkus`, literal deployment context,
+one selected profile, and one or more source-relative Java files/directories.
+The source-only mode uses Spoon Launcher directly; it does not read or execute
+Maven/Gradle build scripts, compile/load target classes, invoke target methods,
+resolve network dependencies or write generated files. It emits schema-1 JSON
+containing the selected OpenAPI document, exact parsed-file inventory and explicit
+coverage. Ordinary parser messages go to stderr. Empty recovery and unsupported
+conditions fail instead of yielding a clean document.
+
+Spring MVC uses the existing AutoOAS analysis. Quarkus uses the Jakarta JAX-RS
+analysis, excludes registered MicroProfile REST clients from provider endpoints,
+and unwraps `Uni<T>` / typed `RestResponse<T>` response bodies by qualified name.
+Response status/header behavior of those wrappers is not fully inferred.
+`@ApplicationPath` is retained and joined to the explicit deployment context;
+configuration files are not interpreted to select context or active profiles.
+
+The selected profile includes unconditional classes, simple positive Spring
+`@Profile` names, and literal class-level Quarkus `@IfBuildProfile` /
+`@UnlessBuildProfile` values. Profile expressions, method/bean conditions, compound
+Quarkus profile conditions and property/custom bean conditions fail as unsupported.
+Source dependency types, custom serializers, streaming response shapes and
+complete runtime registration remain unknown. This mode currently targets Java
+source up to 21 and Jakarta-based Quarkus. It does not establish full API
+correctness or independently compare generated and declared specifications.
+
+Lombok is pinned to 1.18.42 and explicitly enabled for analyzer compilation so
+Java 23+ compiler defaults cannot silently disable its annotation processor.
+Target annotation processors are never run.
+
+`mvn -Dtest=MazeMainTest test` exercises real source parsing for both frameworks,
+nested DTOs, Quarkus reactive bodies, application paths, profile selection,
+REST-client exclusion, empty/malformed inputs and absence of target preparation
+side effects. The upstream license, third-party notices and academic citation
+above remain applicable.

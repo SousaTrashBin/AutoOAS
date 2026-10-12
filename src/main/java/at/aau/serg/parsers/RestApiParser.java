@@ -195,7 +195,7 @@ public class RestApiParser {
         return openApi;
     }
 
-    private void writeOpenApiToFile(OpenAPI openApi, String profileName) {
+    protected void writeOpenApiToFile(OpenAPI openApi, String profileName) {
         var fileName = outputFileName.replace(".json", "") + "_" + profileName + ".json";
         openApiGen.writeOpenApiToFile(openApi, fileName);
         System.out.println("Wrote OpenAPI to " + fileName);
@@ -206,7 +206,8 @@ public class RestApiParser {
         if (basePaths != null && !basePaths.isEmpty()) {
             for (String basePath : basePaths) {
                 String normalizedPath = basePath.startsWith("/") ? basePath : "/" + basePath;
-                normalizedPath = normalizedPath.endsWith("/") ? normalizedPath.substring(0, normalizedPath.length()-1) : normalizedPath;
+                normalizedPath = normalizedPath.length() > 1 && normalizedPath.endsWith("/")
+                        ? normalizedPath.substring(0, normalizedPath.length()-1) : normalizedPath;
 
                 Server server = new Server();
                 server.setUrl(normalizedPath);
