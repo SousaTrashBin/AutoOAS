@@ -109,6 +109,15 @@ Lombok is pinned to 1.18.42 and explicitly enabled for analyzer compilation so
 Java 23+ compiler defaults cannot silently disable its annotation processor.
 Target annotation processors are never run.
 
+The wire-fidelity repair preserves Jackson `JsonProperty.Access` as OpenAPI
+`readOnly`/`writeOnly`, honors `JsonIgnore(false)`, and extracts record components
+without inheriting Object/Record helper methods as properties. Conflicting
+Jackson/OpenAPI access annotations fail rather than produce contradictory flags.
+`MazeWireFidelityTest` includes real-source Spring/Quarkus regressions and
+independent Jackson serialization/deserialization oracles using the locked
+annotations 2.19.0 and databind/core 2.18.2. These synthetic oracle executions are
+tests, not part of the source-only analyzer or service-level ground truth.
+
 `mvn -Dtest=MazeMainTest test` exercises real source parsing for both frameworks,
 nested DTOs, Quarkus reactive bodies, application paths, profile selection,
 REST-client exclusion, empty/malformed inputs and absence of target preparation

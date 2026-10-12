@@ -504,6 +504,19 @@ public class SchemaGeneratorHelper {
                     enrichWithAccessMode(schema, schemaAnnotation);
                 });
         enrichWithAnnotation(Deprecated.class, annotations, deprecatedAnnotation -> schema.setDeprecated(true));
+        enrichWithAnnotation(com.fasterxml.jackson.annotation.JsonProperty.class, annotations, property -> {
+            var access = property.access();
+            if ((access == com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY
+                    && Boolean.TRUE.equals(schema.getWriteOnly()))
+                    || (access == com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY
+                    && Boolean.TRUE.equals(schema.getReadOnly()))
+                    || (access == com.fasterxml.jackson.annotation.JsonProperty.Access.READ_WRITE
+                    && (Boolean.TRUE.equals(schema.getReadOnly()) || Boolean.TRUE.equals(schema.getWriteOnly())))) {
+                throw new IllegalArgumentException("Conflicting Jackson/OpenAPI property access");
+            }
+            if (access == com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY) schema.setReadOnly(true);
+            if (access == com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY) schema.setWriteOnly(true);
+        });
     }
 
     public void enrichWithTypeAnnotations(Parameter parameter, Annotation[] annotations) {
@@ -615,9 +628,7 @@ public class SchemaGeneratorHelper {
      */
     public boolean hasJsonIgnore(Annotation[] annotations) {
         for (Annotation annotation : annotations) {
-            if (annotation != null &&
-                    annotation.annotationType() != null &&
-                    "com.fasterxml.jackson.annotation.JsonIgnore".equals(annotation.annotationType().getName())) {
+            if (annotation instanceof com.fasterxml.jackson.annotation.JsonIgnore ignore && ignore.value()) {
                 return true;
             }
         }
