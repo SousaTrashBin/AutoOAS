@@ -14,6 +14,8 @@ import com.github.jrcodeza.schema.generator.model.InheritanceInfo;
 import com.github.jrcodeza.schema.generator.util.SchemaGeneratorHelper;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.Paths;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Schema;
@@ -238,11 +240,18 @@ public class RestApiParser {
 
                 /// REST API detection ///
                 for (CtMethod<?> method : currentControllerClassInHierarchyType.getMethods()) {
+                    Set<Operation> previousOperations = Collections.newSetFromMap(new IdentityHashMap<>());
+                    operationsMap.values().forEach(item -> previousOperations.addAll(item.readOperations()));
                     // Adds the operation for the method to the operationsMap if it contains a corresponding annotation
                     operationsTransformer.createOperation(
                             method, controllerBasePath,
                             operationsMap, concreteControllerClassType.getSimpleName(),
                             previouslyDetectedApiParamsAndResponses);
+                    operationsMap.forEach((path, item) -> item.readOperationsMap().forEach((httpMethod, operation) -> {
+                        if (!previousOperations.contains(operation)) {
+                            operationCreated(method, path, httpMethod);
+                        }
+                    }));
                 }
 
                 /// traversing down the controller's sub-resources ///
@@ -279,6 +288,10 @@ public class RestApiParser {
         operationsTransformer.fixDuplicateOperationIds(operationsMap);
 
         return operationsMap;
+    }
+
+    /** Receives actual transformed mappings, including competing source witnesses. */
+    protected void operationCreated(CtMethod<?> method, String path, PathItem.HttpMethod httpMethod) {
     }
 
     private List<ControllerClassProcessingInformation> findSubResourcesInController(ControllerClassProcessingInformation controllerUnderAnalysis, String basePath) {

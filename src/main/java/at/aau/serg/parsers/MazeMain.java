@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.servers.Server;
 import spoon.Launcher;
 import spoon.OutputType;
@@ -14,6 +15,7 @@ import spoon.reflect.CtModel;
 import spoon.reflect.code.CtLiteral;
 import spoon.reflect.code.CtNewArray;
 import spoon.reflect.declaration.CtAnnotation;
+import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtPackage;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.visitor.filter.TypeFilter;
@@ -28,6 +30,9 @@ import java.util.*;
  * Gradle, target classpaths, compilation, application startup or network calls.
  */
 public final class MazeMain {
+    private record OperationWitness(String path, String method, String file, int line,
+                                    String declaring_type, String method_signature) {
+    }
     private static final String SPRING_PROFILE = "org.springframework.context.annotation.Profile";
     private static final String IF_PROFILE = "io.quarkus.arc.profile.IfBuildProfile";
     private static final String UNLESS_PROFILE = "io.quarkus.arc.profile.UnlessBuildProfile";
@@ -132,8 +137,25 @@ public final class MazeMain {
             }
         };
         Map<String, OpenAPI> generated = new HashMap<>();
+        Set<OperationWitness> operations = new HashSet<>();
         RestApiParser parser = new RestApiParser(root.toString(), root.toString(), "",
                 restFramework, model) {
+            @Override
+            protected void operationCreated(CtMethod<?> method, String path, PathItem.HttpMethod httpMethod) {
+                var position = method.getPosition();
+                if (!position.isValidPosition() || position.getLine() <= 0
+                        || position.getFile() == null || method.getDeclaringType() == null) {
+                    throw new IllegalArgumentException("Operation has no qualified source witness");
+                }
+                Path file = position.getFile().toPath().toAbsolutePath().normalize();
+                if (!file.startsWith(root) || !files.contains(file) || !Files.isRegularFile(file)
+                        || Files.isSymbolicLink(file)) {
+                    throw new IllegalArgumentException("Operation source is outside selected owned inputs");
+                }
+                operations.add(new OperationWitness(path, httpMethod.name(),
+                        root.relativize(file).toString().replace('\\', '/'), position.getLine(),
+                        method.getDeclaringType().getQualifiedName(), method.getSignature()));
+            }
             @Override
             protected RelevantClasses getRelevantClassesFromPackages(Collection<CtPackage> packages) {
                 RelevantClasses classes = super.getRelevantClassesFromPackages(packages);
@@ -170,9 +192,19 @@ public final class MazeMain {
         document.getInfo().setTitle("Source provider");
         document.getInfo().setVersion("generated");
         ObjectNode result = mapper().createObjectNode();
-        result.put("schema_version", 1).put("engine", "autooas").put("framework", framework)
+        result.put("schema_version", 2).put("engine", "autooas").put("framework", framework)
                 .put("profile", profile).put("context_path", contextPath);
         result.set("document", mapper().valueToTree(document));
+        result.set("operations", mapper().valueToTree(operations.stream()
+                .filter(operation -> document.getPaths().containsKey(operation.path())
+                        && document.getPaths().get(operation.path()).readOperationsMap()
+                        .containsKey(PathItem.HttpMethod.valueOf(operation.method())))
+                .sorted(Comparator.comparing(OperationWitness::path)
+                        .thenComparing(OperationWitness::method)
+                        .thenComparing(OperationWitness::file)
+                        .thenComparingInt(OperationWitness::line)
+                        .thenComparing(OperationWitness::declaring_type)
+                        .thenComparing(OperationWitness::method_signature)).toList()));
         result.set("files", mapper().valueToTree(files.stream()
                 .map(file -> root.relativize(file).toString().replace('\\', '/')).toList()));
         result.set("coverage", mapper().valueToTree(List.of(

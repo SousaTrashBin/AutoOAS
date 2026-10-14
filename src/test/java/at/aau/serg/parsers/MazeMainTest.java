@@ -6,7 +6,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -51,6 +53,20 @@ class MazeMainTest {
                 }
                 """);
         JsonNode result = generate("spring", "default");
+        assertEquals(2, result.path("schema_version").asInt());
+        JsonNode operations = result.path("operations");
+        assertEquals(1, operations.size());
+        JsonNode witness = operations.get(0);
+        Set<String> fields = new HashSet<>();
+        witness.fieldNames().forEachRemaining(fields::add);
+        assertEquals(Set.of("path", "method", "file", "line", "declaring_type", "method_signature"), fields);
+        assertEquals("/items", witness.path("path").asText());
+        assertEquals("POST", witness.path("method").asText());
+        assertEquals("src/main/java/example/Resource.java", witness.path("file").asText());
+        assertEquals("example.Resource", witness.path("declaring_type").asText());
+        assertEquals("create(example.Payload)", witness.path("method_signature").asText());
+        assertTrue(witness.path("line").asInt() > 0);
+        assertTrue(witness.path("line").asInt() <= Files.readAllLines(source.resolve("Resource.java")).size());
         assertTrue(result.path("document").path("paths").path("/items").has("post"));
         JsonNode models = result.path("document").path("components").path("schemas");
         assertTrue(models.path("Payload").path("properties").has("items"));
@@ -92,11 +108,73 @@ class MazeMainTest {
         JsonNode paths = result.path("document").path("paths");
         assertTrue(paths.path("/items").has("get"));
         assertFalse(paths.has("/client-only"));
+        assertEquals(1, result.path("operations").size());
+        JsonNode witness = result.path("operations").get(0);
+        assertEquals("/items", witness.path("path").asText());
+        assertEquals("GET", witness.path("method").asText());
+        assertEquals("example.Resource", witness.path("declaring_type").asText());
+        assertEquals("read()", witness.path("method_signature").asText());
         assertEquals("#/components/schemas/Payload", paths.path("/items").path("get")
                 .path("responses").path("200").path("content").path("application/json")
                 .path("schema").path("$ref").asText());
         assertEquals("/edge/v1", result.path("document").path("servers").get(0).path("url").asText());
         assertNull(System.getProperty("maze.target.executed"));
+    }
+
+    @Test void competingOverloadsAndInheritedOperationsKeepEveryQualifiedWitness() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Base.java"), """
+                package example;
+                import org.springframework.web.bind.annotation.*;
+                public class Base {
+                  @GetMapping("/inherited")
+                  public String inherited() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                import org.springframework.web.bind.annotation.*;
+                @RestController @RequestMapping("/items")
+                public class Resource extends Base {
+                  @GetMapping
+                  public String read() { throw new AssertionError("Target execution"); }
+                  @GetMapping
+                  public String read(@RequestParam("name") String name) { throw new AssertionError("Target execution"); }
+                  @RequestMapping(value="/multi", method={RequestMethod.GET, RequestMethod.POST})
+                  public String multi() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        JsonNode result = generate("spring", "prod");
+        JsonNode operations = result.path("operations");
+        assertEquals(5, operations.size());
+        Set<String> overloads = new HashSet<>();
+        Set<Integer> overloadLines = new HashSet<>();
+        Set<String> multiMethods = new HashSet<>();
+        for (JsonNode witness : operations) {
+            String path = witness.path("path").asText();
+            String method = witness.path("method").asText();
+            assertTrue(result.path("document").path("paths").path(path).has(method.toLowerCase(java.util.Locale.ROOT)));
+            assertTrue(Files.isRegularFile(root.resolve(witness.path("file").asText())));
+            if (path.equals("/items")) {
+                assertEquals("GET", method);
+                assertEquals("example.Resource", witness.path("declaring_type").asText());
+                overloads.add(witness.path("method_signature").asText());
+                overloadLines.add(witness.path("line").asInt());
+            } else if (path.equals("/items/inherited")) {
+                assertEquals("example.Base", witness.path("declaring_type").asText());
+                assertEquals("inherited()", witness.path("method_signature").asText());
+                assertEquals("src/main/java/example/Base.java", witness.path("file").asText());
+            } else {
+                assertEquals("/items/multi", path);
+                multiMethods.add(method);
+            }
+        }
+        assertEquals(Set.of("read()", "read(java.lang.String)"), overloads);
+        assertEquals(2, overloadLines.size());
+        assertEquals(Set.of("GET", "POST"), multiMethods);
+        assertEquals(operations, generate("spring", "prod").path("operations"));
+        assertNull(System.getProperty("maze.target.executed"));
+        assertFalse(Files.exists(root.resolve("application-started")));
     }
 
     @Test void quarkusRootApplicationPathPreservesDeploymentPrefix() throws Exception {
@@ -164,9 +242,13 @@ class MazeMainTest {
                         + controller + "(\"/" + profile + "\")\n"
                         + "class " + profile + " { " + method + " public String get() { return \"ok\"; } }");
             }
-            JsonNode paths = generate(framework, "prod").path("document").path("paths");
+            JsonNode result = generate(framework, "prod");
+            JsonNode paths = result.path("document").path("paths");
             assertTrue(paths.has("/prod"));
             assertFalse(paths.has("/dev"));
+            assertEquals(1, result.path("operations").size());
+            assertEquals("/prod", result.path("operations").get(0).path("path").asText());
+            assertEquals("example.prod", result.path("operations").get(0).path("declaring_type").asText());
             Files.delete(source.resolve("prod.java"));
             Files.delete(source.resolve("dev.java"));
         }
