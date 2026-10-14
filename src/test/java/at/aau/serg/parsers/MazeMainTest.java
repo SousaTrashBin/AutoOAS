@@ -65,7 +65,7 @@ class MazeMainTest {
         assertEquals("src/main/java/example/Resource.java", witness.path("file").asText());
         assertEquals("example.Resource", witness.path("declaring_type").asText());
         assertEquals("create(example.Payload)", witness.path("method_signature").asText());
-        assertTrue(witness.path("line").asInt() > 0);
+        assertEquals(5, witness.path("line").asInt());
         assertTrue(witness.path("line").asInt() <= Files.readAllLines(source.resolve("Resource.java")).size());
         assertTrue(result.path("document").path("paths").path("/items").has("post"));
         JsonNode models = result.path("document").path("components").path("schemas");

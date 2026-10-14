@@ -152,8 +152,13 @@ public final class MazeMain {
                         || Files.isSymbolicLink(file)) {
                     throw new IllegalArgumentException("Operation source is outside selected owned inputs");
                 }
+                int line = position.getLine();
+                for (CtAnnotation<?> annotation : method.getAnnotations()) {
+                    if (annotation.getPosition().isValidPosition())
+                        line = Math.min(line, annotation.getPosition().getLine());
+                }
                 operations.add(new OperationWitness(path, httpMethod.name(),
-                        root.relativize(file).toString().replace('\\', '/'), position.getLine(),
+                        root.relativize(file).toString().replace('\\', '/'), line,
                         method.getDeclaringType().getQualifiedName(), method.getSignature()));
             }
             @Override
