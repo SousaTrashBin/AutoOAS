@@ -78,7 +78,7 @@ public class ComponentSchemaTransformer {
             // TODO: support multi-inheritance of interfaces
             return traverseAndAddProperties(schema, inheritanceMap, firstParent.getTypeDeclaration(), clazz);
 
-        } else if (clazz.getSuperclass() != null) {
+        } else if (clazz.getSuperclass() != null && !(clazz instanceof spoon.reflect.declaration.CtRecord)) {
             return traverseAndAddProperties(schema, inheritanceMap, clazz.getSuperclass().getTypeDeclaration(), clazz);
         }
 
@@ -258,6 +258,17 @@ public class ComponentSchemaTransformer {
     private Map<String, Schema> getClassProperties(CtType<?> clazz, List<String> requiredFields) {
         Map<String, Schema> classPropertyMap = new HashMap<>();
         Set<String> processedFieldNames = new HashSet<>();
+
+        if (clazz instanceof spoon.reflect.declaration.CtRecord record) {
+            for (var component : record.getRecordComponents()) {
+                var annotations = schemaGeneratorHelper.getActualAnnotations(component.getAnnotations());
+                if (schemaGeneratorHelper.hasJsonIgnore(annotations)) continue;
+                getFieldOrMethodSchema(component.getSimpleName(), component.getType(),
+                        component.getAnnotations(), requiredFields)
+                        .ifPresent(schema -> classPropertyMap.put(schema.getName(), schema));
+            }
+            return classPropertyMap;
+        }
 
         processFields(clazz, requiredFields, classPropertyMap, processedFieldNames);
         processGetterMethods(clazz, requiredFields, classPropertyMap, processedFieldNames);
