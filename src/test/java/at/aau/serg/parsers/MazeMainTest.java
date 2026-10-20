@@ -269,4 +269,85 @@ class MazeMainTest {
         assertThrows(IllegalArgumentException.class, () -> MazeMain.generate(root, "spring", "/",
                 "default", List.of(Path.of("../outside"))));
     }
+
+    @Test void ownControllerRouteSurvivesUnavailableExternalSuperclassWithCoverage() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                import org.springframework.stereotype.Controller;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+                @Controller
+                public class Resource extends SpringBootServletInitializer {
+                  @GetMapping("/owned") public String owned() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        JsonNode result = generate("spring", "default");
+        JsonNode paths = result.path("document").path("paths");
+        assertEquals(1, paths.size());
+        assertTrue(paths.path("/owned").has("get"));
+        assertEquals(1, result.path("operations").size());
+        JsonNode witness = result.path("operations").get(0);
+        assertEquals("example.Resource", witness.path("declaring_type").asText());
+        assertEquals("owned()", witness.path("method_signature").asText());
+        assertEquals("src/main/java/example/Resource.java", witness.path("file").asText());
+        String coverage = result.path("coverage").toString();
+        assertTrue(coverage.contains("SpringBootServletInitializer"), coverage);
+        assertTrue(coverage.toLowerCase(java.util.Locale.ROOT).contains("inherit"), coverage);
+        assertNull(System.getProperty("maze.target.executed"));
+        assertFalse(Files.exists(root.resolve("application-started")));
+    }
+
+    @Test void springLiteralNegatedProfilesSelectRoutesAndAllowUnrelatedExcludedBeans() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resources.java"), """
+                package example;
+                import org.springframework.context.annotation.Profile;
+                import org.springframework.web.bind.annotation.*;
+                @Profile("default") @RestController
+                class DefaultResource {
+                  @GetMapping("/default") public String read() { return "ok"; }
+                }
+                @Profile("!default") @RestController
+                class OtherResource {
+                  @GetMapping("/other") public String read() { return "ok"; }
+                }
+                @Profile("!default") @org.springframework.stereotype.Component
+                class UnrelatedBean {}
+                """);
+        for (String profile : List.of("default", "prod")) {
+            JsonNode result = generate("spring", profile);
+            String path = profile.equals("default") ? "/default" : "/other";
+            assertEquals(1, result.path("document").path("paths").size());
+            assertTrue(result.path("document").path("paths").path(path).has("get"));
+            assertEquals(1, result.path("operations").size());
+            assertEquals(path, result.path("operations").get(0).path("path").asText());
+        }
+    }
+
+    @Test void compoundSpringProfilesAndNegatedQuarkusNamesRemainUnsupported() throws Exception {
+        Path source = sources();
+        Path controller = source.resolve("Resource.java");
+        for (String expression : List.of("prod & !default", "prod | default", "!!default")) {
+            Files.writeString(controller, """
+                    package example;
+                    @org.springframework.context.annotation.Profile("%s")
+                    @org.springframework.web.bind.annotation.RestController
+                    class Resource {
+                      @org.springframework.web.bind.annotation.GetMapping("/items")
+                      public String read() { return "ok"; }
+                    }
+                    """.formatted(expression));
+            assertThrows(IllegalArgumentException.class, () -> generate("spring", "prod"), expression);
+        }
+        for (String annotation : List.of("IfBuildProfile", "UnlessBuildProfile")) {
+            Files.writeString(controller, """
+                    package example;
+                    @io.quarkus.arc.profile.%s("!prod")
+                    @jakarta.ws.rs.Path("/items")
+                    class Resource { @jakarta.ws.rs.GET public String read() { return "ok"; } }
+                    """.formatted(annotation));
+            assertThrows(IllegalArgumentException.class, () -> generate("quarkus", "prod"), annotation);
+        }
+    }
 }

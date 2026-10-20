@@ -138,8 +138,13 @@ public final class MazeMain {
         };
         Map<String, OpenAPI> generated = new HashMap<>();
         Set<OperationWitness> operations = new HashSet<>();
+        Set<String> unresolvedSuperclasses = new java.util.TreeSet<>();
         RestApiParser parser = new RestApiParser(root.toString(), root.toString(), "",
                 restFramework, model) {
+            @Override
+            protected void unresolvedControllerSuperclass(String name) {
+                unresolvedSuperclasses.add(name);
+            }
             @Override
             protected void operationCreated(CtMethod<?> method, String path, PathItem.HttpMethod httpMethod) {
                 var position = method.getPosition();
@@ -216,7 +221,9 @@ public final class MazeMain {
                 "AutoOAS source-only/no-classpath extraction is heuristic. Dependency types, runtime "
                 + "registration, custom serializers, configuration and complete behavioral coverage "
                 + "are not established. Source roots, profile and deployment context are explicit; "
-                + "declared/generated agreement is not checked.")));
+                + "declared/generated agreement is not checked. "
+                + (unresolvedSuperclasses.isEmpty() ? "" : "Unavailable controller superclass "
+                   + String.join(", ", unresolvedSuperclasses) + "; inherited operations are not established."))));
         return result;
     }
 
@@ -226,7 +233,8 @@ public final class MazeMain {
                 String name = annotation.getAnnotationType().getQualifiedName();
                 if (name.equals(REST_CLIENT)) return false;
                 if ((name.equals(SPRING_PROFILE) || name.equals(IF_PROFILE))
-                        && !profileValues(annotation).contains(profile)) return false;
+                        && profileValues(annotation).stream().noneMatch(value -> value.startsWith("!")
+                            ? !value.substring(1).equals(profile) : value.equals(profile))) return false;
                 if (name.equals(UNLESS_PROFILE) && profileValues(annotation).contains(profile)) return false;
             }
             return true;
@@ -244,7 +252,8 @@ public final class MazeMain {
         for (var value : expressions) {
             if (!(value instanceof CtLiteral<?> literal)
                     || !(literal.getValue() instanceof String name)
-                    || !name.matches("[A-Za-z0-9_.-]+")) {
+                    || !name.matches(annotation.getAnnotationType().getQualifiedName().equals(SPRING_PROFILE)
+                        ? "!?[A-Za-z0-9_.-]+" : "[A-Za-z0-9_.-]+")) {
                 throw new IllegalArgumentException("Profile expressions require literal positive names");
             }
             profiles.add(name);
