@@ -224,6 +224,73 @@ class MazeMainTest {
         assertEquals(java.util.Map.of("name", true, "optional", false, "x-token", true), required);
     }
 
+    @Test void unrelatedConditionalDocumentationBeanRetainsUnconditionalRoutes() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                @org.springframework.web.bind.annotation.RestController
+                public class Resource {
+                  @org.springframework.web.bind.annotation.GetMapping("/items")
+                  public String read() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        Files.writeString(source.resolve("Swagger3Config.java"), """
+                package example;
+                @org.springframework.context.annotation.Configuration
+                @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+                  name="docs.enabled", havingValue="true")
+                public class Swagger3Config {
+                  @org.springframework.context.annotation.Bean
+                  public io.swagger.v3.oas.models.OpenAPI docs() {
+                    throw new AssertionError("Target execution");
+                  }
+                }
+                """);
+        JsonNode result = generate("spring", "default");
+        assertTrue(result.path("document").path("paths").path("/items").has("get"));
+        assertEquals(1, result.path("operations").size());
+        assertEquals("example.Resource", result.path("operations").get(0)
+                .path("declaring_type").asText());
+        String coverage = result.path("coverage").toString();
+        assertTrue(coverage.contains("ConditionalOnProperty"), coverage);
+        assertTrue(coverage.toLowerCase(java.util.Locale.ROOT).contains("not evaluated"), coverage);
+        assertFalse(Files.exists(root.resolve("application-started")));
+    }
+
+    @Test void conditionalProviderTypeStillFailsClosed() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="api.enabled")
+                @org.springframework.web.bind.annotation.RestController
+                public class Resource {
+                  @org.springframework.web.bind.annotation.GetMapping("/items")
+                  public String read() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        assertThrows(IllegalArgumentException.class,
+                () -> generate("spring", "default"));
+    }
+
+    @Test void conditionalOwnedControllerAncestorStillFailsClosed() throws Exception {
+        Path source = sources();
+        Files.writeString(source.resolve("Base.java"), """
+                package example;
+                @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="api.enabled")
+                public class Base {
+                  @org.springframework.web.bind.annotation.GetMapping("/items")
+                  public String read() { throw new AssertionError("Target execution"); }
+                }
+                """);
+        Files.writeString(source.resolve("Resource.java"), """
+                package example;
+                @org.springframework.web.bind.annotation.RestController
+                public class Resource extends Base {}
+                """);
+        assertThrows(IllegalArgumentException.class,
+                () -> generate("spring", "default"));
+    }
+
     @Test void explicitProfilesAndUnsupportedConditions() throws Exception {
         Path source = sources();
         for (String framework : List.of("spring", "quarkus")) {
