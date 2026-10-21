@@ -103,7 +103,8 @@ public final class MazeMain {
         if (launcher.getEnvironment().getErrorCount() != 0) {
             throw new IllegalArgumentException("Spoon reported incomplete model construction");
         }
-        // Reject conditions whose semantics this bounded entry point cannot evaluate.
+        Set<String> conditionalTypes = new TreeSet<>();
+        Set<String> conditionalAnnotations = new TreeSet<>();
         for (CtAnnotation<?> annotation : model.getElements(new TypeFilter<>(CtAnnotation.class))) {
             String name = annotation.getAnnotationType().getQualifiedName();
             if (name.equals(SPRING_PROFILE) || name.equals(IF_PROFILE) || name.equals(UNLESS_PROFILE)) {
@@ -114,7 +115,11 @@ public final class MazeMain {
             } else if (name.startsWith("io.quarkus.arc.properties.")
                     || name.startsWith("org.springframework.boot.autoconfigure.condition.")
                     || name.equals("org.springframework.context.annotation.Conditional")) {
-                throw new IllegalArgumentException("Property/custom bean conditions are unsupported");
+                CtType<?> type = annotation.getParent() instanceof CtType<?> parent
+                        ? parent : annotation.getParent(CtType.class);
+                if (type == null) throw new IllegalArgumentException("Unowned bean condition");
+                conditionalTypes.add(type.getQualifiedName());
+                conditionalAnnotations.add(name);
             }
         }
         RestFramework restFramework = framework.equals("spring") ? new SpringRestFramework() {
@@ -138,8 +143,13 @@ public final class MazeMain {
         };
         Map<String, OpenAPI> generated = new HashMap<>();
         Set<OperationWitness> operations = new HashSet<>();
+        Set<String> unresolvedSuperclasses = new java.util.TreeSet<>();
         RestApiParser parser = new RestApiParser(root.toString(), root.toString(), "",
                 restFramework, model) {
+            @Override
+            protected void unresolvedControllerSuperclass(String name) {
+                unresolvedSuperclasses.add(name);
+            }
             @Override
             protected void operationCreated(CtMethod<?> method, String path, PathItem.HttpMethod httpMethod) {
                 var position = method.getPosition();
@@ -164,11 +174,18 @@ public final class MazeMain {
             @Override
             protected RelevantClasses getRelevantClassesFromPackages(Collection<CtPackage> packages) {
                 RelevantClasses classes = super.getRelevantClassesFromPackages(packages);
-                return new RelevantClasses(
+                RelevantClasses selectedClasses = new RelevantClasses(
                         selected(classes.getControllerClasses(), profile),
                         selected(classes.getGlobalExceptionHandlerClasses(), profile),
                         selected(classes.getApplicationPathClasses(), profile),
                         selected(classes.getExplicitModelClasses(), profile));
+                for (var types : List.of(selectedClasses.getControllerClasses(),
+                        selectedClasses.getGlobalExceptionHandlerClasses(),
+                        selectedClasses.getApplicationPathClasses(),
+                        selectedClasses.getExplicitModelClasses())) {
+                    rejectConditionalProviders(types, conditionalTypes);
+                }
+                return selectedClasses;
             }
             @Override
             protected void writeOpenApiToFile(OpenAPI openApi, String selectedProfile) {
@@ -216,8 +233,31 @@ public final class MazeMain {
                 "AutoOAS source-only/no-classpath extraction is heuristic. Dependency types, runtime "
                 + "registration, custom serializers, configuration and complete behavioral coverage "
                 + "are not established. Source roots, profile and deployment context are explicit; "
-                + "declared/generated agreement is not checked.")));
+                + "declared/generated agreement is not checked. "
+                + (conditionalTypes.isEmpty() ? "" : "Unrelated bean conditions "
+                   + String.join(", ", conditionalAnnotations) + " on "
+                   + String.join(", ", conditionalTypes) + " were not evaluated. ")
+                + (unresolvedSuperclasses.isEmpty() ? "" : "Unavailable controller superclass "
+                   + String.join(", ", unresolvedSuperclasses) + "; inherited operations are not established."))));
         return result;
+    }
+
+    private static void rejectConditionalProviders(List<CtType<?>> types, Set<String> conditionalTypes) {
+        Deque<CtType<?>> pending = new ArrayDeque<>(types);
+        Set<String> visited = new HashSet<>();
+        while (!pending.isEmpty()) {
+            CtType<?> type = pending.removeFirst();
+            if (!visited.add(type.getQualifiedName())) continue;
+            if (conditionalTypes.contains(type.getQualifiedName())) {
+                throw new IllegalArgumentException("Property/custom provider conditions are unsupported");
+            }
+            var ancestors = new ArrayList<>(type.getSuperInterfaces());
+            if (type.getSuperclass() != null) ancestors.add(type.getSuperclass());
+            for (var ancestor : ancestors) {
+                CtType<?> declaration = ancestor.getTypeDeclaration();
+                if (declaration != null) pending.addLast(declaration);
+            }
+        }
     }
 
     private static List<CtType<?>> selected(List<CtType<?>> types, String profile) {
@@ -226,7 +266,8 @@ public final class MazeMain {
                 String name = annotation.getAnnotationType().getQualifiedName();
                 if (name.equals(REST_CLIENT)) return false;
                 if ((name.equals(SPRING_PROFILE) || name.equals(IF_PROFILE))
-                        && !profileValues(annotation).contains(profile)) return false;
+                        && profileValues(annotation).stream().noneMatch(value -> value.startsWith("!")
+                            ? !value.substring(1).equals(profile) : value.equals(profile))) return false;
                 if (name.equals(UNLESS_PROFILE) && profileValues(annotation).contains(profile)) return false;
             }
             return true;
@@ -244,7 +285,8 @@ public final class MazeMain {
         for (var value : expressions) {
             if (!(value instanceof CtLiteral<?> literal)
                     || !(literal.getValue() instanceof String name)
-                    || !name.matches("[A-Za-z0-9_.-]+")) {
+                    || !name.matches(annotation.getAnnotationType().getQualifiedName().equals(SPRING_PROFILE)
+                        ? "!?[A-Za-z0-9_.-]+" : "[A-Za-z0-9_.-]+")) {
                 throw new IllegalArgumentException("Profile expressions require literal positive names");
             }
             profiles.add(name);

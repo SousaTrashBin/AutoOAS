@@ -271,15 +271,20 @@ public class RestApiParser {
                 // todo consider what to do for sub resource resolution (envirocar)
                 /// traversing up the controller class's inheritance ///
                 if (currentControllerClassInHierarchyType.getSuperclass() != null
-                        && currentControllerClassInfoUnderAnalysis.getParentResourceTypeChain().size() < 2) // fixme temp solution for envirocar to stop generation
+                        && currentControllerClassInfoUnderAnalysis.getParentResourceTypeChain().size() < 2) {
+                    var reference = currentControllerClassInHierarchyType.getSuperclass();
+                    var parent = reference.getTypeDeclaration();
+                    if (parent == null) unresolvedControllerSuperclass(reference.getQualifiedName());
+                    else
                     notProcessedControllerClasses.add(
                             new ControllerClassProcessingInformation(
                                     concreteControllerClassType,
-                                    currentControllerClassInHierarchyType.getSuperclass().getTypeDeclaration(),
+                                    parent,
                                     currentControllerClassInfoUnderAnalysis.getParentResourceTypeChain(),
                                     currentControllerClassInfoUnderAnalysis.getBasePath(),
                                     currentControllerClassInfoUnderAnalysis.getPreviouslyDetectedApiParamsAndResponses())
                     );
+                }
             }
 
             notProcessedControllerClasses.removeAll(curControllerClasses);
@@ -291,6 +296,8 @@ public class RestApiParser {
     }
 
     /** Receives actual transformed mappings, including competing source witnesses. */
+    protected void unresolvedControllerSuperclass(String name) {}
+
     protected void operationCreated(CtMethod<?> method, String path, PathItem.HttpMethod httpMethod) {
     }
 
